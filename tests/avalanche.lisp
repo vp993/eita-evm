@@ -208,7 +208,35 @@
            (and (= (length leaf-c-t) (1+ (length leaf-eth)))
                 (= (aref leaf-c-t (1- (length leaf-c-t))) #x01)))
       (chk "Coreth 5-field WAVAX block 95,000,000 eth_getProof leaf matches byte-for-byte"
-           (equalp wavax-leaf wavax-exp))))
+           (equalp wavax-leaf wavax-exp)))
+
+    ;; 10. SAE deferred anchor resolution & automatic GasClock lookahead seeding
+    (let ((eita.state::*deferred-anchors* (list 96000099))
+          (eita.state::*anchor-queue* '()))
+      (chk "deferred anchor ignores unrelated settledHeight"
+           (and (null (eita.state::resolve-deferred-anchor! 96000098 "0xdead"))
+                (null eita.state::*anchor-queue*)))
+      (chk "deferred anchor promotes to *anchor-queue* when settledHeight matches"
+           (and (eita.state::resolve-deferred-anchor! 96000099 "0x8b02e85f")
+                (null eita.state::*deferred-anchors*)
+                (equal eita.state::*anchor-queue* '((96000099 "0x8b02e85f"))))))
+
+    (let* ((settling-blk (eita.input::make-chain-block
+                          :number 96000000 :settled-height 95999994
+                          :settled-gas-unix #x6ab4247d :settled-gas-numerator #x625341
+                          :settled-excess #x171a7ed02 :target-exponent #x2c5c860
+                          :min-price-exponent #x1ff37c048d1567bc))
+           (other-blk (eita.input::make-chain-block :number 95999995 :settled-height 95999989))
+           (eita.input:*block-source*
+            (eita.input:make-block-source
+             :name "test-sae-lookahead"
+             :block (lambda (k) (if (= k 96000000) settling-blk other-blk))))
+           (eita.chain.avalanche::*avalanche-gas-clock* nil)
+           (eita.chain.avalanche::*avalanche-clock-block* nil))
+      (chk "SAE GasClock auto-seeds at 95999994 from lookahead header 96000000"
+           (and (eita.chain.avalanche::avalanche-seed-gasclock-lookahead 95999994)
+                (eql eita.chain.avalanche::*avalanche-clock-block* 95999994)
+                (plusp (eita.chain.avalanche:gasclock-base-fee eita.chain.avalanche::*avalanche-gas-clock*))))))
 
   (format t "~&avalanche: ~D passed, ~D failed~%" pass fail)
   (when (plusp fail) (eita.test:finish :code 1)))

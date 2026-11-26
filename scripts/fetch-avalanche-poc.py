@@ -66,7 +66,7 @@ def fetch_window(url, out_dir, start, end, workers=8):
 
 def main():
     p = argparse.ArgumentParser(description="Fetch Avalanche C-Chain replay window for Eita PoC")
-    p.add_argument("--rpc", default=os.environ.get("AVAX_RPC_URL", "http://10.35.0.120:9650/ext/bc/C/rpc"))
+    p.add_argument("--rpc", default=os.environ.get("AVAX_RPC_URL"), required=("AVAX_RPC_URL" not in os.environ))
     p.add_argument("--out", required=True)
     p.add_argument("--from", dest="start", type=int, required=True)
     p.add_argument("--to", dest="end", type=int, required=True)

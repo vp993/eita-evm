@@ -697,6 +697,34 @@
   (when (plusp (length *avalanche-tx-warp-messages*))
     (access-addr! +coreth-warp+)))
 
+(defun avalanche-seed-gasclock-lookahead (target-height)
+  "Attempt to seed *AVALANCHE-GAS-CLOCK* at TARGET-HEIGHT by looking ahead in *BLOCK-SOURCE*
+   (up to 32 blocks) for a header whose settledHeight equals TARGET-HEIGHT. Returns T if seeded."
+  (when (and *block-source* (>= target-height 0))
+    (let ((fetch-fn (eita.input::block-source-block *block-source*)))
+      (when fetch-fn
+        (loop for k from (1+ target-height) to (+ target-height 32)
+              for b = (ignore-errors (funcall fetch-fn k))
+              while b
+              for sh = (blk-settled-height b)
+              do (cond ((eql sh target-height)
+                        (when (and (blk-settled-gas-unix b) (blk-settled-gas-numerator b)
+                                   (blk-settled-excess b) (blk-target-exponent b)
+                                   (blk-min-price-exponent b))
+                          (setf *avalanche-gas-clock*
+                                (gasclock-from-settled
+                                 (blk-settled-gas-unix b)
+                                 (blk-settled-gas-numerator b)
+                                 (blk-settled-excess b)
+                                 (blk-target-exponent b)
+                                 (blk-min-price-exponent b))
+                                *avalanche-clock-block* target-height)
+                          (format t "~&[avalanche] seeded SAE GasClock at block ~D from settled header ~D~%"
+                                  target-height k)
+                          (return t)))
+                       ((and sh (> sh target-height))
+                        (return nil))))))))
+
 (defun avalanche-block-setup (net)
   (lambda (n blk ts)
     (let ((af (avax-fork-ord net ts)))
@@ -715,11 +743,15 @@
              (ext-gas (or (blk-ext-data-gas-used blk) 0))
              (hdr-bf (or (blk-base-fee blk) 0))
              (receipts (when sae (or (blk-receipts blk) (and *block-source* (fetch-receipts n)))))
+             ;; Auto-seed SAE GasClock on resume/first SAE block if settling header is available
+             (_seeded (when (and sae (not (and *avalanche-gas-clock* (eql *avalanche-clock-block* (1- n)))))
+                        (avalanche-seed-gasclock-lookahead (1- n))))
              ;; Advance active sequential SAE GasClock if continuous from block n-1
              (clock-bf
               (when (and sae *avalanche-gas-clock* (eql *avalanche-clock-block* (1- n)))
                 (gasclock-before-block! *avalanche-gas-clock* ts (blk-timestamp-ms blk))
                 (gasclock-base-fee *avalanche-gas-clock*))))
+        (declare (ignore _seeded))
         (multiple-value-bind (rcpt-bf shown-p)
             (if sae
                 (sae-executed-base-fee (blk-txs blk) receipts hdr-bf n)
