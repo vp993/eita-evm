@@ -429,41 +429,60 @@ impl Store {
     }
 
     async fn get_txs_and_receipts(self: &Arc<Self>, n: u64) -> Result<(Vec<Value>, Vec<Value>)> {
-        let idx = self
-            .replay_files
-            .partition_point(|&(a, _, _)| a <= n)
-            .checked_sub(1)
-            .ok_or_else(|| eyre!("block {n} below replay_store range"))?;
-        let (a, b, ref path) = self.replay_files[idx];
-        if n < a || n > b {
+        let end_pos = self.replay_files.partition_point(|&(a, _, _)| a <= n);
+        if end_pos == 0 {
+            return Err(eyre!("block {n} below replay_store range"));
+        }
+        // Scan backwards from the last interval with start <= n to handle overlapping
+        // sub-range parquet files (e.g. a narrow backfill file inside a wider span).
+        let mut candidates = Vec::new();
+        let mut i = end_pos;
+        while i > 0 {
+            i -= 1;
+            let (a, b, _) = self.replay_files[i];
+            if a <= n && n <= b {
+                candidates.push(i);
+            }
+            if n.saturating_sub(a) > 10_000 {
+                break;
+            }
+        }
+        if candidates.is_empty() {
+            let (a, b, _) = self.replay_files[end_pos - 1];
             return Err(eyre!("block {n} not in replay_store (nearest {a}..={b})"));
         }
-        {
-            let cache = self.tx_cache.lock().await;
-            if let Some(m) = cache.get(&idx) {
-                if let Some(pair) = m.get(&n) {
-                    return Ok(pair.clone());
+        for idx in candidates {
+            let (_, _, ref path) = self.replay_files[idx];
+            let decoded = {
+                let cache = self.tx_cache.lock().await;
+                cache.get(&idx).cloned()
+            };
+            let decoded = match decoded {
+                Some(m) => m,
+                None => {
+                    let p = path.clone();
+                    let m = Arc::new(
+                        tokio::task::spawn_blocking(move || decode_replay_store_parquet(&p)).await??,
+                    );
+                    let mut cache = self.tx_cache.lock().await;
+                    let mut order = self.tx_order.lock().await;
+                    if !cache.contains_key(&idx) {
+                        cache.insert(idx, Arc::clone(&m));
+                        order.push_back(idx);
+                        while order.len() > MAX_TX_CACHE_FILES {
+                            if let Some(old) = order.pop_front() {
+                                cache.remove(&old);
+                            }
+                        }
+                    }
+                    m
                 }
+            };
+            if let Some(pair) = decoded.get(&n) {
+                return Ok(pair.clone());
             }
         }
-        let p = path.clone();
-        let decoded = Arc::new(tokio::task::spawn_blocking(move || decode_replay_store_parquet(&p)).await??);
-        let pair = decoded
-            .get(&n)
-            .cloned()
-            .ok_or_else(|| eyre!("block {n} missing inside {}", path.display()))?;
-        let mut cache = self.tx_cache.lock().await;
-        let mut order = self.tx_order.lock().await;
-        if !cache.contains_key(&idx) {
-            cache.insert(idx, decoded);
-            order.push_back(idx);
-            while order.len() > MAX_TX_CACHE_FILES {
-                if let Some(old) = order.pop_front() {
-                    cache.remove(&old);
-                }
-            }
-        }
-        Ok(pair)
+        Err(eyre!("block {n} missing inside all covering replay_store files"))
     }
 
     async fn get_full_block_json(self: &Arc<Self>, n: u64) -> Result<Vec<u8>> {
