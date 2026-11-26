@@ -222,7 +222,7 @@
                    ;; storage touched, account never faulted: its fields as they are below
                    (multiple-value-bind (found nonce balance codehash flag)
                        (eita.state.snapshot:view-account below-layers below-base a (and v2 (lambda () (key-hash a 20)))
-                                                         (lambda (k) (key-hash k 32)))
+                                                         #'slot-key-hash)
                      (if found (list nonce balance codehash flag) (list 0 0 eita.state.snapshot:+empty-code-hash+ nil))))))
            (slots (r)
              (let ((kv '())) (acct-slots-map (lambda (k v) (push (cons k v) kv)) tb r) kv)))

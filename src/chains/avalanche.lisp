@@ -78,6 +78,8 @@
 (defvar *avalanche-sae-block* nil "T when the current block runs under Helicon/SAE.")
 (defvar *avalanche-exec-base-fee* 0 "Executed base fee for the current block.")
 (defvar *avalanche-block-gas-limits* 0 "Running sum of tx gas limits in an SAE block.")
+(defvar *avalanche-block-difficulty* 1
+  "Current block's header.difficulty: Coreth keeps difficulty=1 (not EIP-4399 mixHash=0) for opcode 0x44.")
 (defvar *avalanche-warp-results* nil "Hash table: tx-hash-int -> failed-index bitset octets.")
 (defvar *avalanche-tx-warp-messages* #() "Vector of parsed WARP-PRED structs for the current tx.")
 (defvar *avalanche-tx-warp-failed* nil "Failed-index bitset octets for the current tx, or :UNRECORDED.")
@@ -760,6 +762,7 @@
             (gate n :header "SAE GasClock baseFee" rcpt-bf clock-bf))
           (setf *avalanche-sae-block* sae
                 *avalanche-block-gas-limits* 0
+                *avalanche-block-difficulty* (if (plusp (blk-difficulty blk)) (blk-difficulty blk) (blk-mix-hash blk))
                 *avalanche-warp-results* (warp-parse-block-results (blk-extra-data blk)
                                                                    (spec-avax-extradata-offset af))
                 *avalanche-exec-base-fee* (cond (clock-bf clock-bf)
@@ -819,7 +822,7 @@
          (to (tx-to tx))
          (value (tx-value tx))
          (base-fee *avalanche-exec-base-fee*)
-         (tx-block-ctx (list* :base-fee base-fee block-ctx))
+         (tx-block-ctx (list* :base-fee base-fee :prev-randao *avalanche-block-difficulty* block-ctx))
          (egp (effective-gas-price tx base-fee))
          (block-gas-limit (getf block-ctx :gas-limit))
          (used-so-far (if *avalanche-sae-block* *avalanche-block-gas-limits* *receipt-cumulative-gas*))

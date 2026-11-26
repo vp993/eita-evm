@@ -236,7 +236,26 @@
       (chk "SAE GasClock auto-seeds at 95999994 from lookahead header 96000000"
            (and (eita.chain.avalanche::avalanche-seed-gasclock-lookahead 95999994)
                 (eql eita.chain.avalanche::*avalanche-clock-block* 95999994)
-                (plusp (eita.chain.avalanche:gasclock-base-fee eita.chain.avalanche::*avalanche-gas-clock*))))))
+                (plusp (eita.chain.avalanche:gasclock-base-fee eita.chain.avalanche::*avalanche-gas-clock*)))))
+
+    ;; 11. Coreth opcode 0x44 (DIFFICULTY/PREVRANDAO) returns header.difficulty (1), not mixHash (0)
+    (let* ((w (make-world))
+           (sender #xa11ce)
+           (contract #x2000)
+           ;; PREVRANDAO (0x44), PUSH1 0, MSTORE, PUSH1 32, PUSH1 0, RETURN
+           (code (hex->bytes "4460005260206000f3"))
+           (tx (make-tx :type 2 :sender sender :to contract :nonce 0 :gas-limit 100000
+                        :max-fee 100 :max-priority 0 :value 0 :data #()))
+           (eita.chain.avalanche::*avalanche-block-difficulty* 1))
+      (setf (balance-of w sender) 1000000000
+            (code-of w contract) code)
+      (multiple-value-bind (gas status egp) (run-avax-tx w tx :sae nil :base-fee 25)
+        (declare (ignore gas egp))
+        (chk "Coreth opcode 0x44 returns difficulty=1 (not mixHash=0)"
+             (and (= status 1)
+                  (= (length *last-tx-output*) 32)
+                  (= (aref *last-tx-output* 31) 1))
+             *last-tx-output*))))
 
   (format t "~&avalanche: ~D passed, ~D failed~%" pass fail)
   (when (plusp fail) (eita.test:finish :code 1)))
