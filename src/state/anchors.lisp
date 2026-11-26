@@ -372,7 +372,7 @@
         (let* ((m (shiftf *base-check-due* nil))
                (path (eita.state.snapshot:snap-path (snapshot-dir) m))
                (manifest (eita.state.snapshot:read-manifest path)))
-          (spawn-root-check! m (getf manifest :state-root) ; @veil root-check-poll!/manifest-root
+          (spawn-root-check! m (or (getf manifest :state-root) (second (find m (read-anchors) :key #'first :from-end t))) ; @veil root-check-poll!/manifest-root
                              (list (list :base m (getf manifest :content-hash))) :base))
         (let ((a (first *anchor-queue*))) ; @veil root-check-poll!/anchor
           (when a

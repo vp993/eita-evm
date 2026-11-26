@@ -420,7 +420,7 @@
                             (destructuring-bind (run p n) (rest job)
                               (let ((tmp (eita.state.snapshot:layer-tmp-path dir p n)) (fin (eita.state.snapshot:layer-path dir p n)))
                                 (when (probe-file tmp) (sb-ext:run-program "rm" (list "-rf" (namestring tmp)) :search t))
-                                (eita.state.snapshot:write-composed tmp *chain-id* n (getf (eita.state.snapshot:snap-manifest (first run)) :state-root) ; @veil start-compaction!/compose
+                                (eita.state.snapshot:write-composed tmp *chain-id* n (or (getf (eita.state.snapshot:snap-manifest (first run)) :state-root) (second (find n (read-anchors) :key #'first :from-end t))) ; @veil start-compaction!/compose
                                                           run nil :parent p
                                                           :provenance (format nil "eita minor compaction ~D-~D, code ~A" p n (engine-code-version)))
                                 (eita.state.snapshot:snap-publish dir n tmp :final fin) ; @veil start-compaction!/publish
@@ -429,7 +429,7 @@
                             (destructuring-bind (run n) (rest job)
                               (let ((tmp (eita.state.snapshot:snap-tmp-path dir n)))
                                 (when (probe-file tmp) (sb-ext:run-program "rm" (list "-rf" (namestring tmp)) :search t))
-                                (eita.state.snapshot:write-composed tmp *chain-id* n (getf (eita.state.snapshot:snap-manifest (first run)) :state-root) ; @veil start-compaction!/compose
+                                (eita.state.snapshot:write-composed tmp *chain-id* n (or (getf (eita.state.snapshot:snap-manifest (first run)) :state-root) (second (find n (read-anchors) :key #'first :from-end t))) ; @veil start-compaction!/compose
                                                           run base
                                                           :provenance (format nil "eita major compaction to ~D over ~D, code ~A"
                                                                               n (eita.state.snapshot:snap-block base) (engine-code-version)))
@@ -510,6 +510,7 @@
           ;; anchor: a base AT it would take the anchor's boundary out of the stack before
           ;; its own check, which then never runs (`stack-composition` NIL; the twin)
           ((and *base* disk
+                (not (sb-ext:posix-getenv "EITA_NO_MAJOR_COMPACTION"))
                 (> (reduce #'+ disk :key #'layer-bytes) (floor (layer-bytes *base*) 8)))
            (let ((run (remove-if (lambda (l) (or (> (eita.state.snapshot:snap-block l) horizon) ; @veil compaction-step!/major-run
                                                  (and fence (>= (eita.state.snapshot:snap-block l) fence))))
