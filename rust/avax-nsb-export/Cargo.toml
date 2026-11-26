@@ -1,0 +1,19 @@
+# eita-avax-nsb-export — streams a verified Avalanche C-Chain NSBFLAT2 full snapshot
+# (produced by node_snapshot_backtest) into Eita's version 2 record stream (`eita import-reth`).
+#
+#   eita-avax-nsb-export --manifest MANIFEST.json --flat-dir FLAT_V2_DIR \
+#     | eita import-reth --state STATE-DIR -
+[package]
+name = "eita-avax-nsb-export"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[dependencies]
+eyre = "0.6"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+zstd = "0.13"
+
+[profile.release]
+opt-level = 3

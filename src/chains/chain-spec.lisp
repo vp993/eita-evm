@@ -42,7 +42,7 @@
   (name "Ethereum") (id 1) genesis-path (banner "") rpc-url cache-dir prestate-overlay
   (reorg-depth 64)
   fork-ord block-setup run-tx tx-prewarm upfront-extra fee pre-block post-block system-rule
-  header-foreign skip-eth-header-hash observe-kinds
+  header-foreign coreth-trie observe-kinds
   precompile-p precompile-run frame-init frame-init-log selfdestruct p256verify)
 
 (defvar *chain-spec* nil "The installed chain-spec.")
@@ -65,7 +65,7 @@
         *chain-upfront-extra-hook* (chain-spec-upfront-extra spec)
         *chain-fee-hook* (chain-spec-fee spec)
         *chain-header-foreign* (chain-spec-header-foreign spec)
-        *skip-eth-header-hash* (chain-spec-skip-eth-header-hash spec)
+        eita.mpt:*coreth-trie* (chain-spec-coreth-trie spec)
         *chain-precompile-p* (chain-spec-precompile-p spec)
         *chain-precompile-hook* (chain-spec-precompile-run spec)
         *chain-value-transfer-hook* (chain-spec-frame-init spec)
@@ -73,6 +73,7 @@
         *chain-selfdestruct-hook* (chain-spec-selfdestruct spec)
         *p256verify* (chain-spec-p256verify spec)
         *chain-observe-kinds* (chain-spec-observe-kinds spec))
+  (fill eita.state::*hslot-cache* nil)
   spec)
 
 ;;; Registry: chain name → constructor (a function, so environment-dependent fields such as
