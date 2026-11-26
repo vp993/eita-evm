@@ -23,8 +23,8 @@ use std::time::Duration;
 use tokio::sync::Mutex;
 
 const INDEX_SPAN: u64 = 1000;
-const PREFETCH_OBJECTS: usize = 6;
-const MAX_HEADER_CACHE_OBJECTS: usize = 12;
+const PREFETCH_OBJECTS: usize = 4;
+const MAX_HEADER_CACHE_OBJECTS: usize = 6;
 const MAX_TX_CACHE_FILES: usize = 4;
 
 #[derive(Deserialize)]
@@ -142,9 +142,64 @@ fn parse_span(name: &str) -> Option<(u64, u64)> {
     Some((a.parse().ok()?, b.parse().ok()?))
 }
 
+/// Fast zero-copy slice of the top-level `"block": { ... }` object inside a `block_diffs` JSON
+/// payload, skipping the giant `"transactions": [...]` prestateTracer diff array completely.
+fn extract_block_object(payload: &[u8]) -> Option<&[u8]> {
+    let needle = b"\"block\"";
+    let mut i = 0;
+    while i + needle.len() < payload.len() {
+        if &payload[i..i + needle.len()] == needle {
+            let mut j = i + needle.len();
+            while j < payload.len() && payload[j].is_ascii_whitespace() {
+                j += 1;
+            }
+            if j < payload.len() && payload[j] == b':' {
+                j += 1;
+                while j < payload.len() && payload[j].is_ascii_whitespace() {
+                    j += 1;
+                }
+                if j < payload.len() && payload[j] == b'{' {
+                    let start = j;
+                    let mut depth = 0usize;
+                    let mut in_str = false;
+                    let mut esc = false;
+                    while j < payload.len() {
+                        let c = payload[j];
+                        if in_str {
+                            if esc {
+                                esc = false;
+                            } else if c == b'\\' {
+                                esc = true;
+                            } else if c == b'"' {
+                                in_str = false;
+                            }
+                        } else {
+                            match c {
+                                b'"' => in_str = true,
+                                b'{' => depth += 1,
+                                b'}' => {
+                                    depth -= 1;
+                                    if depth == 0 {
+                                        return Some(&payload[start..=j]);
+                                    }
+                                }
+                                _ => {}
+                            }
+                        }
+                        j += 1;
+                    }
+                    return None;
+                }
+            }
+        }
+        i += 1;
+    }
+    None
+}
+
 fn decode_block_diffs_parquet(bytes: Bytes) -> Result<HashMap<u64, Value>> {
     let builder = ParquetRecordBatchReaderBuilder::try_new(bytes)?;
-    let reader = builder.with_batch_size(256).build()?;
+    let reader = builder.with_batch_size(64).build()?;
     let mut out = HashMap::new();
     for batch in reader {
         let batch = batch?;
@@ -166,9 +221,14 @@ fn decode_block_diffs_parquet(bytes: Bytes) -> Result<HashMap<u64, Value>> {
             } else {
                 return Err(eyre!("unexpected data column type {:?}", data_col.data_type()));
             };
-            let parsed: BlockDiffHeaderOnly =
-                serde_json::from_slice(payload).wrap_err_with(|| format!("decode header {n}"))?;
-            out.insert(n, parsed.block);
+            let block_val: Value = if let Some(slice) = extract_block_object(payload) {
+                serde_json::from_slice(slice).wrap_err_with(|| format!("decode fast header {n}"))?
+            } else {
+                let parsed: BlockDiffHeaderOnly =
+                    serde_json::from_slice(payload).wrap_err_with(|| format!("decode header {n}"))?;
+                parsed.block
+            };
+            out.insert(n, block_val);
         }
     }
     Ok(out)
@@ -290,9 +350,11 @@ impl Store {
 
     async fn prefetch_ahead(self: &Arc<Self>, start_block: u64) {
         let mut probe = start_block;
-        let mut scheduled = 0usize;
         let mut seen = std::collections::HashSet::new();
-        while scheduled < PREFETCH_OBJECTS {
+        for _ in 0..PREFETCH_OBJECTS {
+            if self.inflight.lock().await.len() >= PREFETCH_OBJECTS {
+                break;
+            }
             let Ok(key) = self.object_key_for(probe).await else {
                 break;
             };
@@ -306,10 +368,9 @@ impl Store {
                 let cached = self.header_cache.lock().await.contains_key(&key);
                 if !cached {
                     let mut inf = self.inflight.lock().await;
-                    if !inf.contains_key(&key) {
+                    if inf.len() < PREFETCH_OBJECTS && !inf.contains_key(&key) {
                         let h = self.spawn_load_headers(key.clone());
                         inf.insert(key, h);
-                        scheduled += 1;
                     }
                 }
             }
