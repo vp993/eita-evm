@@ -58,7 +58,7 @@
            #:*last-verdict* #:*mpt-tracking* #:*network-fork-ords* #:*p256verify*
            #:*prague-delegation* #:*receipt-cumulative-gas* #:*system-seed* #:*trace-frames*
            #:*trace-step* #:*trace-tx* #:*tx-origin* #:+acct-destroyed+ #:+acct-touched+
-           #:+fork-ord-prague+ #:access-addr! #:access-slot! #:account-dead-p #:apply-tx
+           #:+fork-ord-prague+ #:+tx-invalid-reasons+ #:access-addr! #:access-slot! #:account-dead-p #:apply-tx
            #:attach-subscriber! #:block-blob-base-fee #:block-invalid #:cb-call
            #:check-cached-foreign-pointers! #:child-gas #:code-hash-int #:current-arena
            #:destroyed-p #:ecrecover-address #:recover-authority-ahead! #:effective-gas-price #:el-fork
@@ -88,7 +88,7 @@
            #:spec-op-native-sstore-sentry #:spec-op-native-transient-gas #:spec-op-native-log-gas
            #:spec-op-native-keccak-gas #:spec-op-native-code-deposit-gas #:spec-op-native-new-code-gas
            #:spec-op-denim-block-ms #:spec-op-denim-p
-           #:spec-op-operator-fee #:spec-sweep-effect #:spec-tx-gas-used #:ts-refund
+           #:spec-op-operator-fee #:spec-gas-refund-effect #:spec-sweep-effect #:spec-tx-gas-used #:ts-refund
            #:spec-system-effect #:stream-block-begin! #:stream-checkpoint! #:stream-commit!
            #:stream-finalize! #:stream-rollback! #:touch! #:tx #:tx-access-list #:tx-auth-count
            #:tx-auth-list #:tx-blob-hashes #:tx-chain-id #:tx-data #:tx-gas-limit
@@ -102,7 +102,7 @@
   (:use #:cl #:cffi #:eita.native #:eita.core #:eita.evm #:eita.input #:eita.chain)
   (:export
            #:*anchor-queue* #:*fault-account-hook*
-           #:*fault-slot-hook* #:*mpt-armed* #:*observe-capture* #:*observer* #:*pending-root*
+           #:*fault-slot-hook* #:*keep-zero-slots* #:*mpt-armed* #:*observe-capture* #:*observer* #:*pending-root*
            #:*tip-freeze* #:*view-log* #:+acct-marked+ #:account-delete! #:account-mark!
            #:*chain-head* #:at-tip-p
            #:account-marked-p #:account-uncreate! #:account-unmark! #:acct-addr #:acct-balance
@@ -170,12 +170,12 @@
   (:use #:cl #:cffi #:eita.native #:eita.core #:eita.evm #:eita.state)
   (:export
            #:*block-source* #:*cache-dir* #:*offline-misses* #:*rpc-calls* #:*rpc-url*
-           #:*stats* #:+exit-input-outage+ #:addr-hex #:blk-base-fee #:blk-blob-gas-used
-           #:blk-difficulty #:blk-excess-blob-gas #:blk-extra-data #:blk-gas-limit
+           #:*skip-eth-header-hash* #:*stats* #:+exit-input-outage+ #:addr-hex #:blk-base-fee #:blk-blob-gas-used
+           #:blk-block-extra-data #:blk-difficulty #:blk-excess-blob-gas #:blk-ext-data-gas-used #:blk-extra-data #:blk-gas-limit
            #:blk-gas-used #:blk-hash #:blk-header-hash #:blk-header-rlp #:blk-logs-bloom
            #:blk-miner #:blk-mix-hash #:blk-nonce #:blk-number #:blk-parent-beacon-root
            #:blk-parent-hash #:blk-receipts #:blk-receipts-root #:blk-requests-hash
-           #:blk-sha3-uncles #:blk-state-root #:blk-timestamp #:blk-transactions-root #:blk-txs
+           #:blk-settled-height #:blk-sha3-uncles #:blk-state-root #:blk-timestamp #:blk-transactions-root #:blk-txs
            #:blk-uncle-count #:blk-uncles #:blk-withdrawals #:blk-withdrawals-root
            #:block-source #:block-source-begin #:block-source-fault-account
            #:block-source-fault-slot #:block-source-follow #:block-source-forget-above
@@ -210,6 +210,11 @@
 (defpackage #:eita.chain.op
   (:documentation "OP-Stack chains (Base, OP Mainnet, World Chain), full or lazy state.")
   (:use #:cl #:cffi #:eita.native #:eita.core #:eita.evm #:eita.state #:eita.input #:eita.chain))
+
+(defpackage #:eita.chain.avalanche
+  (:documentation "Avalanche C-Chain (Coreth + Granite + Helicon/SAE): chain spec, Coreth/SAE charging, atomic tx effects.")
+  (:use #:cl #:cffi #:eita.native #:eita.core #:eita.evm #:eita.state #:eita.input #:eita.chain)
+  (:export #:avalanche-chain-spec #:decode-atomic-batch #:sae-executed-base-fee))
 
 (defpackage #:eita.fixtures
   (:documentation "The BlockchainTests runner (ethereum/tests, execution-spec-tests).")

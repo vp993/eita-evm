@@ -84,6 +84,7 @@
                (:file "arc-precompiles")
                (:file "arc")
                (:file "op")
+               (:file "avalanche")
                (:file "replay")))
 
 (defsystem "eita/fixtures"

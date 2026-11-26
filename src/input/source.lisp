@@ -46,11 +46,16 @@
 ;;; Block integrity: a block is only as good as its bytes, so it is checked against its own
 ;;; hash, keccak(RLP(header)) (decode-block computes it), before it is replayed. With the
 ;;; parent link run-block already checks, a chain of blocks is then hash-linked end to end.
+(defvar *skip-eth-header-hash* nil
+  "When T, fetch-verified-block trusts the block's hash field instead of checking
+   keccak(EthRLP(header)) (chains with non-Ethereum RLP headers like Avalanche Coreth).")
+
 (defun fetch-verified-block (n)
-  "FETCH-BLOCK, checked: its header must hash to its `hash`. A copy that does not is
-   replaced by the source's REFETCH, when it has one; if that does not hash either, stop loud."
+  "FETCH-BLOCK, checked: its header must hash to its `hash` (unless *SKIP-ETH-HEADER-HASH*).
+   A copy that does not is replaced by the source's REFETCH, when it has one; if that does
+   not hash either, stop loud."
   (let ((blk (fetch-block n)))
-    (if (= (blk-header-hash blk) (blk-hash blk))
+    (if (or *skip-eth-header-hash* (= (blk-header-hash blk) (blk-hash blk)))
         blk
         (progn
           (format t "~&[input] block ~D does not hash to its own hash field (~(~x~) vs ~(~x~))~%"

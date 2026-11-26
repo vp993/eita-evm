@@ -302,7 +302,8 @@
   header-rlp (header-hash 0)            ; rlp(header) and its keccak, from the fields as given
   txs withdrawals (uncle-count 0)       ; withdrawals: (index validator-index address amount)
   receipts                              ; the receipts file's (parse plists), or NIL: none at hand
-  uncles)                               ; the uncles file's headers (CHAIN-BLOCKs), or NIL
+  uncles                                ; the uncles file's headers (CHAIN-BLOCKs), or NIL
+  ext-data-gas-used block-extra-data settled-height) ; Avalanche Coreth / SAE header fields (NIL elsewhere)
 
 (defdecoder decode-access-entry (addr keys)
     (("address" addr jint) ("storageKeys" keys jlist #'jint))
@@ -373,9 +374,12 @@
 (defun jskip-value (b i) (values nil (jskip b i)))
 
 ;; The block (or ommer header) object at I as a CHAIN-BLOCK.
-(defdecoder decode-block ((hf (make-array (length +header-fields+) :initial-element nil)) hash txs withdrawals uncles)
+(defdecoder decode-block ((hf (make-array (length +header-fields+) :initial-element nil)) hash txs withdrawals uncles
+                          ext-data-gas-used block-extra-data settled-height)
     ((:header hf) ("hash" hash jint) ("transactions" txs jlist #'decode-tx)
-     ("withdrawals" withdrawals jlist #'decode-withdrawal) ("uncles" uncles jlist #'jskip-value))
+     ("withdrawals" withdrawals jlist #'decode-withdrawal) ("uncles" uncles jlist #'jskip-value)
+     ("extDataGasUsed" ext-data-gas-used jint) ("blockExtraData" block-extra-data jbytes)
+     ("settledHeight" settled-height jint))
   (flet ((int (k) (let ((v (svref hf k))) (and v (octets-int v)))))
     (let ((rlp (header-rlp hf)))
       (make-chain-block
@@ -386,7 +390,8 @@
        :receipts-root (svref hf 5) :transactions-root (svref hf 4) :logs-bloom (svref hf 6)
        :sha3-uncles (svref hf 1) :extra-data (svref hf 12) :nonce (svref hf 14) :requests-hash (svref hf 20) :withdrawals-root (svref hf 16)
        :header-rlp rlp :header-hash (octets-int (keccak256-bytes rlp))
-       :txs (delete nil txs) :withdrawals withdrawals :uncle-count (length uncles)))))
+       :txs (delete nil txs) :withdrawals withdrawals :uncle-count (length uncles)
+       :ext-data-gas-used ext-data-gas-used :block-extra-data block-extra-data :settled-height settled-height))))
 
 
 (defun json-octets (text)
